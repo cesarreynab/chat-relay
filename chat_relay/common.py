@@ -40,7 +40,7 @@ class Chat:
 def parse_key(key):
     provider, sep, session = key.partition('/')
     if sep != '/' or provider not in PROVIDERS or not SESSION_ID.fullmatch(session):
-        raise ValueError('Identificador de chat inválido.')
+        raise ValueError('Invalid chat identifier.')
     return provider, session
 
 
@@ -97,24 +97,24 @@ def regular_path(value):
 
 def relative_workspace(root, cwd):
     if not cwd or not Path(cwd).is_absolute():
-        raise ValueError('El chat no tiene una carpeta de proyecto local.')
+        raise ValueError('The chat has no local project folder.')
     try:
         return regular_path(cwd).resolve().relative_to(regular_path(root).resolve()).as_posix()
     except ValueError as error:
-        raise ValueError('El proyecto está fuera de la raíz local configurada.') from error
+        raise ValueError('The project is outside the configured local root.') from error
 
 
 def target_workspace(root, relative):
     parts = PurePosixPath(relative)
     if not relative or parts.is_absolute() or '\\' in relative or ':' in relative or '..' in parts.parts:
-        raise ValueError('Ruta de proyecto inválida en el paquete.')
+        raise ValueError('Invalid project path in the archive.')
     return confined(root, root.joinpath(*parts.parts))
 
 
 def confined(root, path):
     resolved = path.resolve()
     if not resolved.is_relative_to(root.resolve()):
-        raise ValueError('La ruta apunta fuera de la carpeta esperada.')
+        raise ValueError('The path points outside the expected folder.')
     return resolved
 
 
@@ -134,7 +134,7 @@ class Settings:
 
     def save(self, home):
         if self.selected and not (self.folder and self.workspace):
-            raise ValueError('Elige la carpeta compartida y la raíz local antes de seleccionar chats.')
+            raise ValueError('Choose the shared folder and local project root before selecting chats.')
         atomic_json(home / 'settings.json',
                     dict(folder=self.folder, workspace=self.workspace, selected=self.selected))
 
@@ -146,5 +146,5 @@ def device_id(home):
         current = uuid.uuid4().hex
         atomic_json(path, current)
     if not HEX_ID.fullmatch(current):
-        raise ValueError('El identificador local del equipo es inválido.')
+        raise ValueError('Invalid local device identifier.')
     return current

@@ -1,45 +1,43 @@
 # Chat Relay
 
-Chat Relay sincroniza los chats locales que elijas de **Codex** y **Claude Code para VS Code** entre equipos Windows. Funciona desde la bandeja de notificaciones y usa una carpeta compartida, por ejemplo, una carpeta privada sincronizada por MEGA.
+Chat Relay syncs your selected local chats and Goals from **Codex** and **Claude Code for VS Code** between Windows devices. It runs in the notification area and uses a shared folder, such as a private folder synced by MEGA.
 
-## Instalar
+## Install
 
-1. Descarga y extrae el ZIP de [Releases](https://github.com/cesarreynab/chat-relay/releases).
-2. Abre PowerShell en la carpeta extraída. Necesitas Python 3.11 o posterior con Tcl/Tk y Python disponible en PATH.
-3. Ejecuta:
+1. Download and extract the ZIP from [Releases](https://github.com/cesarreynab/chat-relay/releases).
+2. Open PowerShell in the extracted folder. You need Python 3.11 or later with Tcl/Tk and Python on your PATH.
+3. Run the installer.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Install.ps1
 ```
 
-El instalador crea un entorno virtual local, añade un acceso directo y abre **Configuración**. Chat Relay se inicia cuando abres sesión. Si no lo ves junto al reloj de Windows, revisa los iconos ocultos. Para actualizar, sal desde la bandeja antes de volver a ejecutar el instalador.
+The installer creates a local virtual environment, adds a Start menu shortcut, and opens **Settings**. Chat Relay also starts when you sign in. If the icon is absent from the notification area, check the hidden icons. To update, quit Chat Relay from the tray and run the new installer.
 
-## Configurar dos equipos
+## Set up two devices
 
-1. En ambos equipos, haz clic derecho en el icono de Chat Relay y elige **Configuración**. En **Carpeta compartida**, selecciona la copia local de una misma carpeta privada sincronizada. Usa una carpeta dedicada fuera de los perfiles de los asistentes.
-2. En **Raíz local de proyectos**, selecciona la carpeta que contiene tus proyectos en cada equipo. Las raíces pueden estar en unidades distintas. Por ejemplo, un chat de `C:\Projects\demo` aparecerá bajo `D:\Projects\demo` en el otro equipo. La carpeta del proyecto debe existir en ambos.
-3. En el equipo de origen, marca los chats que quieras sincronizar y guarda la selección.
-4. En el otro equipo, marca los chats cuando aparezcan como **Compartido** y guarda. Cierra VS Code y el asistente correspondiente para que Chat Relay aplique la importación. Cuando aparezca **Importado**, vuelve a abrir el asistente.
+1. Right-click the Chat Relay tray icon and open **Settings** on both devices. For **Shared folder**, choose each device's local copy of the same private synced folder. Use a dedicated folder outside either assistant's profile.
+2. For **Local project root**, choose the folder that contains your projects on each device. The drive can differ. A chat from `C:\Projects\demo` can open under `D:\Projects\demo` on the second device. The project folder must exist on both.
+3. Select the chats on the source device and click **Save selection**. The initial selection is empty.
+4. On the second device, select each chat when it appears as **Shared** and save. Close VS Code and the corresponding assistant so Chat Relay can apply the import. When the chat shows **Imported**, reopen the assistant.
 
-La selección inicial está vacía. Después de aceptar un chat en un equipo, sus próximas revisiones se importan automáticamente cuando se cierra el asistente. Chat Relay comprueba la carpeta cada 12 segundos. Los cambios en chats ya publicados se exportan al cerrar el asistente. El tiempo de transferencia depende del cliente que sincroniza la carpeta.
+After you accept a chat, future revisions arrive automatically once the assistant closes. Chat Relay checks the shared folder every 12 seconds and backs up changes to previously published chats when the assistant closes. Transfer time depends on your file sync client.
 
-## Qué se sincroniza
+## What syncs
 
-| Asistente | Alcance de esta versión |
+| Assistant | Scope |
 | --- | --- |
-| Codex local | El historial del chat y su Goal, con el objetivo, el estado, el presupuesto y los contadores registrados por Codex. Compatible con perfiles inicializados que usan `state_5.sqlite`, `goals_1.sqlite` y `thread_history_1.sqlite`. Para inicializar un perfil, abre y completa un chat local. Usa la misma versión de Codex en los dos equipos. |
-| Claude Code local | El historial principal de la sesión y los eventos nativos de `/goal`. La reanudación de un Goal activo se verificó con el ejecutable 2.1.329 incluido con la extensión de VS Code. Claude recupera la condición activa y reinicia sus referencias de tiempo, turnos y consumo de tokens al reanudar. [Documentación de Goals](https://code.claude.com/docs/en/goal#resume-with-an-active-goal) |
+| Local Codex | Chat history and its native Goal, including the objective, status, budget, and counters. This release supports initialized profiles using `state_5.sqlite`, `goals_1.sqlite`, and `thread_history_1.sqlite`. Complete a local chat to initialize a fresh profile, and use the same Codex version on both devices. Only chats with a local transcript appear in Settings. |
+| Local Claude Code | The main transcript and native `/goal` events. We verified resuming an active Goal with the executable bundled with VS Code extension version 2.1.329. Claude restores the condition and resets its elapsed time, turn count, and token-spend baseline on resume. [Claude Code Goals](https://code.claude.com/docs/en/goal#resume-with-an-active-goal) |
 
-El traslado de archivos de proyecto, sesiones en la nube, checkpoints, archivos auxiliares y adjuntos externos queda fuera del alcance de esta versión. Usa la misma cuenta del asistente en ambos equipos.
+Project files, cloud-only sessions, checkpoints, auxiliary files, and external attachments are outside the scope of this release. Use the same account for each assistant on both devices.
 
-Las revisiones se guardan en `ChatRelay-v1` dentro de tu carpeta compartida. Contienen los datos nativos del chat en ZIP, así que usa una carpeta privada a la que solo tengan acceso los equipos de confianza. La suma SHA-256 permite detectar copias incompletas. Si ambos equipos cambian el mismo chat desde una revisión compartida, Chat Relay muestra **Conflicto** y conserva las revisiones de ambos. Desmarcar un chat detiene su sincronización local. Las copias publicadas se conservan en la carpeta compartida.
+Revisions live in `ChatRelay-v1` inside the shared folder. The ZIPs contain native chat data, so keep the folder private and accessible only to trusted devices. SHA-256 checksums detect incomplete transfers. If both devices edit a chat from the same base revision, Chat Relay reports a **Conflict** and keeps both copies. Deselecting a chat stops local sync. Published copies remain in the shared folder.
 
-## Desarrollo
+## Development
 
 ```powershell
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
 python -m chat_relay --settings
 ```
-
-**English summary.** Chat Relay is a Windows tray application for opt-in, bidirectional synchronization of local Codex and Claude Code chat histories and Goals. It uses a private shared folder and supports different project roots on each device.

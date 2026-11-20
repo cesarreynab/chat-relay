@@ -19,9 +19,9 @@ from .relay import FAILURES, Relay
 
 
 POLL_SECONDS = 12
-GOALS = {'active': 'Activo', 'completed': 'Completado', 'complete': 'Completado',
-         'paused': 'Pausado', 'blocked': 'Bloqueado', 'budget_limited': 'Límite alcanzado',
-         'failed': 'Fallido'}
+GOALS = {'active': 'Active', 'completed': 'Completed', 'complete': 'Completed',
+         'paused': 'Paused', 'blocked': 'Blocked', 'budget_limited': 'Budget reached',
+         'failed': 'Failed'}
 LOG = logging.getLogger(__name__)
 
 
@@ -46,7 +46,7 @@ class App:
     def __init__(self, home, show):
         self.home = home
         self.root = tk.Tk()
-        self.root.title('Chat Relay · Configuración')
+        self.root.title('Chat Relay · Settings')
         self.root.geometry('1110x590')
         self.root.minsize(850, 455)
         self.root.withdraw()
@@ -57,21 +57,21 @@ class App:
         self.local, self.remote, self.states, self.errors = {}, {}, {}, []
         self.folder = tk.StringVar(value=self.settings.folder)
         self.workspace = tk.StringVar(value=self.settings.workspace)
-        self.filter_provider = tk.StringVar(value='Todos')
+        self.filter_provider = tk.StringVar(value='All')
         self.filter_text = tk.StringVar()
-        self.status = tk.StringVar(value='Buscando sesiones…')
+        self.status = tk.StringVar(value='Looking for chats…')
         self.actions = queue.SimpleQueue()
         self.wake = threading.Event()
         self.stop = threading.Event()
         self._build()
 
         menu = pystray.Menu(
-            pystray.MenuItem('Configuración', self.dispatch(self.show_settings), default=True),
-            pystray.MenuItem('Sincronizar ahora', self.dispatch(self.wake.set)),
-            pystray.MenuItem('Abrir carpeta compartida', self.dispatch(self.open_folder)),
-            pystray.MenuItem('Abrir registro', self.dispatch(lambda: open_path(self.home / 'relay.log'))),
+            pystray.MenuItem('Settings', self.dispatch(self.show_settings), default=True),
+            pystray.MenuItem('Sync now', self.dispatch(self.wake.set)),
+            pystray.MenuItem('Open shared folder', self.dispatch(self.open_folder)),
+            pystray.MenuItem('Open log', self.dispatch(lambda: open_path(self.home / 'relay.log'))),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem('Salir', self.dispatch(self.quit)),
+            pystray.MenuItem('Quit', self.dispatch(self.quit)),
         )
         self.tray = pystray.Icon('ChatRelay', self.icon_image, 'Chat Relay', menu)
         self.tray.run_detached()
@@ -93,32 +93,32 @@ class App:
         frame.pack(fill='both', expand=True)
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(4, weight=1)
-        for row, label, var in ((0, 'Carpeta compartida', self.folder), (1, 'Raíz local de proyectos', self.workspace)):
+        for row, label, var in ((0, 'Shared folder', self.folder), (1, 'Local project root', self.workspace)):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', padx=(0, 12), pady=4)
             ttk.Entry(frame, textvariable=var).grid(row=row, column=1, sticky='ew', pady=4)
-            ttk.Button(frame, text='Examinar…', command=lambda v=var: self.browse(v)).grid(
+            ttk.Button(frame, text='Browse…', command=lambda v=var: self.browse(v)).grid(
                 row=row, column=2, padx=(8, 0))
         bar = ttk.Frame(frame)
         bar.grid(row=2, column=0, columnspan=3, sticky='ew', pady=(14, 6))
-        ttk.Label(bar, text='Asistente').pack(side='left')
-        providers = ('Todos', *PROVIDERS.values())
+        ttk.Label(bar, text='Assistant').pack(side='left')
+        providers = ('All', *PROVIDERS.values())
         ttk.Combobox(bar, textvariable=self.filter_provider, values=providers, state='readonly', width=16).pack(
             side='left', padx=(6, 16))
-        ttk.Label(bar, text='Buscar chat o proyecto').pack(side='left')
+        ttk.Label(bar, text='Search chats or projects').pack(side='left')
         ttk.Entry(bar, textvariable=self.filter_text, width=38).pack(side='left', padx=6)
         self.workspace.trace_add('write', lambda *_: self.refresh())
         self.filter_provider.trace_add('write', lambda *_: self.refresh())
         self.filter_text.trace_add('write', lambda *_: self.refresh())
         ttk.Label(
-            frame, text='Marca los chats que quieres sincronizar en este equipo. Para recibir un chat, márcalo '
-                        'también aquí cuando aparezca como Compartido.').grid(
+            frame, text='Select the chats you want to sync on this device. To receive a chat, select it when it appears as '
+                        'Shared.').grid(
                             row=3, column=0, columnspan=3, sticky='w', pady=(0, 7))
         table = ttk.Frame(frame)
         table.grid(row=4, column=0, columnspan=3, sticky='nsew')
         fields = (
-            ('pick', 'Sync', 55), ('provider', 'Asistente', 103), ('title', 'Chat', 250),
-            ('project', 'Proyecto', 175), ('goal', 'Goal', 85),
-            ('state', 'Estado', 240), ('last', 'Última copia', 120),
+            ('pick', 'Sync', 55), ('provider', 'Assistant', 103), ('title', 'Chat', 250),
+            ('project', 'Project', 175), ('goal', 'Goal', 85),
+            ('state', 'Status', 240), ('last', 'Last synced', 120),
         )
         self.tree = ttk.Treeview(table, columns=[i for i, _, _ in fields], show='headings', selectmode='browse')
         for key, label, width in fields:
@@ -141,7 +141,7 @@ class App:
             row=5, column=0, columnspan=3, sticky='w', pady=(7, 0))
         ttk.Label(frame, textvariable=self.status, wraplength=650).grid(row=6, column=0, columnspan=2,
                                                                        sticky='w', pady=(9, 0))
-        ttk.Button(frame, text='Guardar selección', command=self.save).grid(row=6, column=2, pady=(9, 0))
+        ttk.Button(frame, text='Save selection', command=self.save).grid(row=6, column=2, pady=(9, 0))
 
     def browse(self, variable):
         path = filedialog.askdirectory(parent=self.root, initialdir=variable.get() or str(Path.home()))
@@ -190,7 +190,7 @@ class App:
         for key in self.local.keys() | self.remote.keys() | self.picks:
             name, session = key.split('/')
             label = PROVIDERS[name]
-            if provider not in ('Todos', label):
+            if provider not in ('All', label):
                 continue
             local = self.local.get(key)
             offers = self.remote.get(key, {})
@@ -199,7 +199,7 @@ class App:
             project = local.cwd if local else peer.get('project', '')
             goal = local.goal if local else peer.get('goal', '')
             state = self.states.get(key, {})
-            status = state.get('status', 'Compartido' if offers else '')
+            status = state.get('status', 'Shared' if offers else '')
             if query and query not in f'{title} {project} {session}'.casefold():
                 continue
             time = datetime.fromtimestamp(state['synced']).strftime('%Y-%m-%d %H:%M') if state.get('synced') else ''
@@ -219,18 +219,18 @@ class App:
         if prior_view:
             self.tree.yview_moveto(prior_view[0])
         self.describe_selection()
-        count = f'{len(self.picks)} chats seleccionados'
+        count = f'{len(self.picks)} chats selected'
         if self.picks != set(self.settings.selected):
-            count += ' · Cambios pendientes de guardar'
+            count += ' · Unsaved changes'
         self.status.set(' · '.join([count, *self.errors]))
 
     def save(self):
         try:
             folder, workspace = self.folder.get().strip(), self.workspace.get().strip()
-            values = (('carpeta compartida', folder), ('raíz local de proyectos', workspace))
+            values = (('shared folder', folder), ('local project root', workspace))
             for label, value in values:
                 if value and (not Path(value).is_absolute() or not Path(value).is_dir()):
-                    raise ValueError(f'Elige una carpeta existente para {label}.')
+                    raise ValueError(f'Choose an existing {label}.')
             result = Settings(folder, workspace, tuple(sorted(self.picks)))
             for key in self.picks:
                 chat = self.local.get(key)
@@ -263,13 +263,13 @@ class App:
                 try:
                     data = relay.tick()
                 except FAILURES as error:
-                    LOG.exception('Error de sincronización')
+                    LOG.exception('Sync failed.')
                     data = {}, {}, {}, [str(error)]
                 self.actions.put((self.results, data))
                 self.wake.wait(POLL_SECONDS)
         except Exception:
-            LOG.exception('El monitor no pudo iniciar.')
-            self.actions.put((self.results, ({}, {}, {}, ['No se pudo iniciar el monitor. Revisa el registro.'])))
+            LOG.exception('The sync worker failed to start.')
+            self.actions.put((self.results, ({}, {}, {}, ['The sync worker failed to start. See the log for details.'])))
 
     def results(self, local, remote, states, errors):
         self.local, self.remote, self.states, self.errors = local, remote, states, errors
@@ -285,7 +285,7 @@ class App:
             try:
                 action(*args)
             except OSError:
-                LOG.exception('No se pudo ejecutar la acción.')
+                LOG.exception('Could not run the action.')
         if not self.stop.is_set():
             self.root.after(180, self._actions)
 
@@ -322,5 +322,5 @@ def main():
         try:
             App(home, args.settings or not (home / 'settings.json').exists()).run()
         except Exception:
-            LOG.exception('Chat Relay no pudo iniciar.')
+            LOG.exception('Chat Relay failed to start.')
             raise

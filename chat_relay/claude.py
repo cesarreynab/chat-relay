@@ -10,17 +10,17 @@ from .common import Busy, Chat, Conflict, SESSION_ID, confined, staged_file, sta
 def project_folder(cwd):
     slug = re.sub(r'[^A-Za-z0-9]', '-', str(cwd))
     if len(slug) > 200:
-        raise ValueError('La ruta del proyecto de Claude Code es demasiado larga para esta versión.')
+        raise ValueError('This Claude Code project path is too long for this version.')
     return slug
 
 
 def records(source):
     for line in source:
         if not line.endswith(b'\n'):
-            raise Busy('El historial de Claude Code todavía se está escribiendo.')
+            raise Busy('Claude Code is still writing the transcript.')
         row = json.loads(line)
         if not isinstance(row, dict):
-            raise ValueError('Registro de Claude Code inválido.')
+            raise ValueError('Invalid Claude Code transcript record.')
         yield row, line
 
 
@@ -81,7 +81,7 @@ class Claude:
     def file(self, session):
         paths = tuple(self.projects.glob(f'*/{session}.jsonl'))
         if len(paths) > 1:
-            raise Conflict('Claude Code tiene el mismo identificador en más de un proyecto.')
+            raise Conflict('This Claude Code session ID exists in more than one project.')
         return confined(self.projects, paths[0]) if paths else None
 
     def catalog(self):
@@ -115,25 +115,25 @@ class Claude:
     def export(self, session, bundle, expected):
         path = self.file(session)
         if path is None:
-            raise Busy('El chat de Claude Code ya no está disponible.')
+            raise Busy('This Claude Code session is no longer available.')
         with path.open('rb') as source:
             _, cwd, _ = describe(session, source)
         if not cwd:
-            raise ValueError('El historial de Claude Code no registra su carpeta de proyecto.')
+            raise ValueError('The Claude Code transcript has no project folder.')
         bundle.write(path, 'transcript.jsonl')
         if self.revision(session) != expected:
-            raise Busy('El historial de Claude Code cambió durante la copia.')
+            raise Busy('The Claude Code transcript changed during export.')
         return cwd
 
     def restore(self, session, bundle, workspace, expected, check_idle, *, tracked):
         native = confined(self.projects, self.projects / project_folder(workspace) / f'{session}.jsonl')
         original = self.file(session)
         if original and original != native:
-            raise Conflict('El chat de Claude Code ya existe en otra carpeta de proyecto.')
+            raise Conflict('This Claude Code session already exists in a different project folder.')
         with bundle.open('transcript.jsonl') as source:
             _, source_cwd, _ = describe(session, source)
         if not source_cwd:
-            raise ValueError('El historial de Claude Code no registra su carpeta de proyecto.')
+            raise ValueError('The Claude Code transcript has no project folder.')
         with staged_file(native) as stage, bundle.open('transcript.jsonl') as source:
             source_rows = records(source)
             with stage.open('wb') as output:
@@ -142,17 +142,17 @@ class Claude:
                         for row, line in records(local):
                             incoming = next(source_rows, None)
                             if incoming is None or self.relocate(incoming[0], source_cwd, workspace) != row:
-                                raise Conflict('El historial local de Claude Code difiere del recibido.')
+                                raise Conflict('The local Claude Code transcript differs from the incoming copy.')
                             output.write(line)
                 for row, line in source_rows:
                     identity = row.get('sessionId', session)
                     if identity != session:
-                        raise ValueError('El paquete contiene registros de otro chat de Claude Code.')
+                        raise ValueError('The archive contains records from a different Claude Code session.')
                     relocated = self.relocate(row, source_cwd, workspace)
                     output.write(line if relocated is row else
                                  (json.dumps(relocated, ensure_ascii=False) + '\n').encode('utf-8'))
             if self.revision(session) != expected:
-                raise Busy('Claude Code cambió la sesión mientras se preparaba la importación.')
+                raise Busy('The Claude Code session changed while preparing the import.')
             if original and original.stat().st_size == stage.stat().st_size:
                 return
             check_idle()

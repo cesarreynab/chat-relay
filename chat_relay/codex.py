@@ -9,7 +9,7 @@ import shutil
 import sqlite3
 import tempfile
 
-from .common import Busy, Chat, Conflict, SESSION_ID, confined, staged_file, stamp
+from .common import Busy, Chat, Conflict, SESSION_ID, confined, regular_path, staged_file, stamp
 
 
 DATABASES = {'state': 'state_5.sqlite', 'goals': 'goals_1.sqlite', 'history': 'thread_history_1.sqlite'}
@@ -66,7 +66,7 @@ class Codex:
             if path.is_file():
                 db.execute(f'ATTACH DATABASE ? AS {alias}', (f'{path.as_uri()}?mode={mode}',))
             elif require:
-                raise ValueError(f'Falta {path.name}. Abre y completa una conversación en Codex para inicializar el perfil.')
+                raise ValueError(f'Missing {path.name}. Complete a chat in Codex to initialize this profile.')
 
     def catalog(self):
         if not self.available():
@@ -77,22 +77,31 @@ class Codex:
             join = 'LEFT JOIN goals.thread_goals g ON g.thread_id = t.id' if has_goals else ''
             status = "COALESCE(g.status, '')" if has_goals else "''"
             rows = db.execute(f'''
-                SELECT t.id, COALESCE(NULLIF(t.name,''), NULLIF(t.title,''), t.id), t.cwd,
+                SELECT t.id, COALESCE(NULLIF(t.name,''), NULLIF(t.title,''), t.id), t.cwd, t.rollout_path,
                        {status}, COALESCE(t.updated_at_ms, 1000 * t.updated_at, 0)
-                FROM state.threads t {join} WHERE t.has_user_event = 1
+                FROM state.threads t {join}
             ''').fetchall()
-        return {session: Chat(self.name, session, title, cwd, goal, updated)
-                for session, title, cwd, goal, updated in rows if SESSION_ID.fullmatch(session)}
+        result = {}
+        for session, title, cwd, path, goal, updated in rows:
+            if not SESSION_ID.fullmatch(session) or not path:
+                continue
+            try:
+                if self.rollout(path, session).is_file():
+                    result[session] = Chat(self.name, session, title, cwd, goal, updated)
+            except (OSError, ValueError):
+                # Codex can index conversations whose transcript lives on another host.
+                continue
+        return result
 
     def rollout(self, path, session):
-        raw = Path(path)
+        raw = regular_path(path)
         if not raw.is_absolute():
-            raise ValueError('La ruta del historial de Codex no es absoluta.')
+            raise ValueError('The Codex transcript path is not absolute.')
         local = confined(self.home, raw)
         match = ROLLOUT.fullmatch(local.name)
         if not match or match[4] != session or local.relative_to(self.home).parts[0] not in (
                 'sessions', 'archived_sessions'):
-            raise ValueError('La ruta del historial de Codex es inesperada.')
+            raise ValueError('Unexpected Codex transcript path.')
         return local
 
     def revision(self, session):
@@ -124,20 +133,20 @@ class Codex:
                                (session,))
                 row = db.execute('SELECT rollout_path, cwd FROM main.threads').fetchone()
                 if not row:
-                    raise Busy('El chat de Codex cambió durante la copia.')
+                    raise Busy('The Codex chat changed during export.')
             rollout = self.rollout(row[0], session)
             bundle.write(meta, 'codex.sqlite')
             bundle.write(rollout, 'transcript.jsonl')
             bundle.writestr('native.json', json.dumps({'rollout': rollout.name}))
         if self.revision(session) != expected:
-            raise Busy('El chat de Codex cambió durante la copia.')
+            raise Busy('The Codex chat changed during export.')
         return row[1]
 
     def restore(self, session, bundle, workspace, expected, check_idle, *, tracked):
         descriptor = json.loads(bundle.read('native.json'))
         match = ROLLOUT.fullmatch(descriptor['rollout'])
         if not match or match[4] != session:
-            raise ValueError('El paquete tiene un historial de Codex inválido.')
+            raise ValueError('The archive contains an invalid Codex transcript.')
         self.home.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self.home) as temp:
             temp = Path(temp)
@@ -151,17 +160,17 @@ class Codex:
                 allowed = {table for _, table, _ in TABLES}
                 if set(db.execute('SELECT name, type FROM incoming.sqlite_schema')) != {
                         (table, 'table') for table in allowed}:
-                    raise ValueError('El paquete de Codex contiene tablas inesperadas.')
+                    raise ValueError('The Codex archive contains unexpected tables.')
                 for alias, table, _ in TABLES:
                     local_cols = columns(db, alias, table)
                     remote_cols = columns(db, 'incoming', table)
                     if not local_cols or set(local_cols) != set(remote_cols):
-                        raise ValueError(f'El formato de {table} difiere. Usa la misma versión de Codex.')
+                        raise ValueError(f'The {table} schema differs. Use the same version of Codex on both devices.')
                 if db.execute('SELECT id FROM incoming.threads').fetchall() != [(session,)]:
-                    raise ValueError('El paquete contiene un identificador de Codex distinto.')
+                    raise ValueError('The archive contains a different Codex thread ID.')
                 remote = db.execute('SELECT archived, rollout_path FROM incoming.threads').fetchone()
                 if Path(remote[1]).name != match[0]:
-                    raise ValueError('El nombre del historial de Codex difiere de su referencia.')
+                    raise ValueError('The Codex transcript filename differs from the archive metadata.')
                 db.execute('BEGIN IMMEDIATE')
                 current = db.execute('SELECT rollout_path, cwd FROM state.threads WHERE id = ?', (session,)).fetchone()
                 if current is None:
@@ -172,13 +181,13 @@ class Codex:
                 else:
                     target = self.rollout(current[0], session)
                 if (current or target.exists()) and (not target.is_file() or not file_prefix(target, proposed)):
-                    raise Conflict('El historial local de Codex difiere del recibido.')
+                    raise Conflict('The local Codex transcript differs from the incoming copy.')
                 old_goal = goal_row(db, 'goals', session)
                 new_goal = goal_row(db, 'incoming', session)
                 if old_goal and old_goal != new_goal and (
                         (not new_goal and not tracked) or
                         (new_goal and old_goal[-1] >= new_goal[-1])):
-                    raise Conflict('El Goal local de Codex difiere del recibido.')
+                    raise Conflict('The local Codex Goal differs from the incoming copy.')
                 if current and target.stat().st_size == proposed.stat().st_size and (
                         old_goal == new_goal and Path(current[1]) == workspace):
                     return
@@ -186,7 +195,7 @@ class Codex:
                     self.restore_table(db, alias, table, key, session, target, workspace)
                 check_idle()
                 if self.revision(session) != expected:
-                    raise Busy('Codex cambió la sesión mientras se preparaba la importación.')
+                    raise Busy('The Codex chat changed while preparing the import.')
                 had_file = target.is_file()
                 backup = temp / 'previous.jsonl'
                 if had_file:

@@ -108,7 +108,7 @@ class RelayTest(unittest.TestCase):
         session, key, _ = self.claude_session()
         self.tick(self.a, self.a_root, key)
         _, _, state, _ = self.tick(self.b, self.b_root, key)
-        self.assertEqual('Importado', state[key]['status'])
+        self.assertEqual('Imported', state[key]['status'])
         self.assertEqual(str(self.b_root / 'demo'), self.bc.catalog()[session].cwd)
         self.assertEqual('active', self.bc.catalog()[session].goal)
         append_row(self.bc.file(session), type='attachment', sessionId=session, cwd=str(self.b_root / 'demo'),
@@ -130,8 +130,8 @@ class RelayTest(unittest.TestCase):
         self.tick(self.a, self.a_root, key)
         _, _, right, _ = self.tick(self.b, self.b_root, key)
         _, _, left, _ = self.tick(self.a, self.a_root, key)
-        self.assertIn('Conflicto', left[key]['status'])
-        self.assertIn('Conflicto', right[key]['status'])
+        self.assertIn('Conflict', left[key]['status'])
+        self.assertIn('Conflict', right[key]['status'])
         self.assertIn('Left branch', file.read_text(encoding='utf-8'))
         self.assertIn('Right branch', self.bc.file(session).read_text(encoding='utf-8'))
         self.assertEqual(3, len(list((self.share / SHARE / 'sessions').rglob('*.zip'))))
@@ -143,15 +143,15 @@ class RelayTest(unittest.TestCase):
         correct = archive.read_bytes()
         archive.write_bytes(correct[:12])
         _, _, state, _ = self.tick(self.b, self.b_root, key)
-        self.assertIn('verificación no coincide', state[key]['status'])
+        self.assertIn('checksum does not match', state[key]['status'])
         archive.write_bytes(correct)
 
         def busy(_):
-            raise Busy('Editor abierto')
+            raise Busy('Editor is open')
 
         self.b.check_idle = busy
         _, _, state, _ = self.tick(self.b, self.b_root, key)
-        self.assertIn('Editor abierto', state[key]['status'])
+        self.assertIn('Editor is open', state[key]['status'])
         self.assertIsNone(self.bc.file(session))
         self.b.check_idle = lambda _: None
         self.tick(self.b, self.b_root, key)
@@ -165,13 +165,13 @@ class RelayTest(unittest.TestCase):
         descriptor['project'] = '../somewhere'
         revision.write_text(json.dumps(descriptor), encoding='utf-8')
         _, _, state, _ = self.tick(self.b, self.b_root, key)
-        self.assertIn('Ruta de proyecto inválida', state[key]['status'])
+        self.assertIn('Invalid project path', state[key]['status'])
 
     def test_codex_preserves_native_goal_and_propagates_clear(self):
         session, key = self.codex_session()
         self.tick(self.a, self.a_root, key)
         _, _, state, _ = self.tick(self.b, self.b_root, key)
-        self.assertEqual('Importado', state[key]['status'])
+        self.assertEqual('Imported', state[key]['status'])
         chat = self.bx.catalog()[session]
         self.assertEqual('paused', chat.goal)
         self.assertEqual(str(self.b_root / 'demo'), chat.cwd)
@@ -184,6 +184,19 @@ class RelayTest(unittest.TestCase):
         self.tick(self.a, self.a_root, key)
         self.assertEqual('', self.ax.catalog()[session].goal)
 
+    def test_catalog_includes_codex_chats_with_local_transcripts_regardless_of_event_flag(self):
+        session, _ = self.codex_session()
+        with sqlite3.connect(self.ax.home / DATABASES['state']) as db:
+            db.execute('UPDATE threads SET has_user_event = 0 WHERE id = ?', (session,))
+            fake = str(uuid.uuid4())
+            db.execute('''
+                INSERT INTO threads (id, rollout_path, cwd, title, updated_at, has_user_event)
+                VALUES (?, ?, ?, 'Indexed conversation with no local transcript', 1, 1)
+            ''', (fake, str(self.ax.home / 'sessions' / f'rollout-2026-01-01T09-00-00-{fake}.jsonl'),
+                  str(self.a_root / 'demo')))
+        db.close()
+        self.assertEqual({session}, self.ax.catalog().keys())
+
     @unittest.skipUnless(os.name == 'nt', 'Windows extended path')
     def test_codex_accepts_extended_length_workspace_paths(self):
         session, key = self.codex_session()
@@ -192,7 +205,7 @@ class RelayTest(unittest.TestCase):
             db.execute('UPDATE threads SET cwd = ? WHERE id = ?', ('\\\\?\\' + cwd, session))
         db.close()
         _, _, state, _ = self.tick(self.a, self.a_root, key)
-        self.assertEqual('Copia publicada', state[key]['status'])
+        self.assertEqual('Backup published', state[key]['status'])
 
     def test_codex_chat_without_goal(self):
         session, key = self.codex_session()
@@ -201,7 +214,7 @@ class RelayTest(unittest.TestCase):
         db.close()
         self.tick(self.a, self.a_root, key)
         _, _, state, _ = self.tick(self.b, self.b_root, key)
-        self.assertEqual('Importado', state[key]['status'])
+        self.assertEqual('Imported', state[key]['status'])
         self.assertEqual('', self.bx.catalog()[session].goal)
 
 

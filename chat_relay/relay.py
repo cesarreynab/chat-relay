@@ -21,6 +21,7 @@ FAILURES = (OSError, ValueError, KeyError, TypeError, sqlite3.Error, zipfile.Bad
             subprocess.SubprocessError)
 SHARE = 'ChatRelay-v1'
 VERSION = 1
+STATUS_VERSION = 2
 
 
 def check_idle(provider):
@@ -30,7 +31,7 @@ def check_idle(provider):
     names = (b'"codex.exe"',) if provider == 'codex' else (b'"claude.exe"',)
     if any(name in processes for name in (*editors, *names)):
         label = 'Codex' if provider == 'codex' else 'Claude Code'
-        raise Busy(f'Para importar, cierra VS Code y {label}.')
+        raise Busy(f'Close VS Code and {label} to sync this chat.')
 
 
 class Relay:
@@ -80,21 +81,21 @@ class Relay:
 
     def descriptor(self, root, key, head):
         if not HEX_ID.fullmatch(head):
-            raise ValueError('Revisión inválida.')
+            raise ValueError('Invalid revision ID.')
         data = read_json(confined(root, self.chat_dir(root, key) / f'{head}.json'))
         if data is None:
-            raise Busy('Esperando a que llegue la revisión por la carpeta compartida.')
+            raise Busy('Waiting for the revision to arrive in the shared folder.')
         parent = data['parent']
         if (data['version'] != VERSION or data['head'] != head or data['key'] != key or
                 not SHA256.fullmatch(data['sha256']) or (parent and not HEX_ID.fullmatch(parent))):
-            raise ValueError('La revisión recibida tiene metadatos inválidos.')
+            raise ValueError('The incoming revision has invalid metadata.')
         return data
 
     def lineage(self, root, key, head):
         seen = set()
         while head:
             if head in seen:
-                raise ValueError('El historial de revisiones contiene un ciclo.')
+                raise ValueError('The revision history contains a cycle.')
             seen.add(head)
             head = self.descriptor(root, key, head)['parent']
         return seen
@@ -118,14 +119,14 @@ class Relay:
         desc = self.descriptor(root, key, head)
         project = target_workspace(workspace, desc['project'])
         if not project.is_dir():
-            raise Busy(f'Esperando la carpeta local del proyecto: {project}')
+            raise Busy(f'Waiting for the local project folder: {project}')
         archive = confined(root, self.chat_dir(root, key) / f'{head}.zip')
         if not archive.is_file():
-            raise Busy('Esperando a que llegue el paquete de la revisión.')
+            raise Busy('Waiting for the revision archive to arrive.')
         self.check_idle(provider.name)
         with archive.open('rb') as source:
             if hashlib.file_digest(source, 'sha256').hexdigest() != desc['sha256']:
-                raise Busy('El paquete llegó incompleto o su suma de verificación no coincide.')
+                raise Busy('The archive is incomplete or its checksum does not match.')
             source.seek(0)
             with zipfile.ZipFile(source) as bundle:
                 provider.restore(session, bundle, project, stamp, lambda: self.check_idle(provider.name),
@@ -142,7 +143,7 @@ class Relay:
         stamp = provider.revision(session)
         previous, base = record.get('stamp'), record.get('head', '')
         if base and not (self.chat_dir(root, key) / f'{base}.json').is_file():
-            raise Busy('La revisión local de referencia todavía no está en la carpeta compartida.')
+            raise Busy('The base revision is unavailable in the shared folder.')
         effective_remote = {head for head in remote if head != base}
         lineages = {head: self.lineage(root, key, head) for head in effective_remote}
         ours = self.lineage(root, key, base) if base and effective_remote else {base}
@@ -164,7 +165,7 @@ class Relay:
             else:
                 record.update(head=candidate, stamp=provider.revision(session), synced=int(time.time()))
                 record.pop('importing', None)
-                self.set_status(record, key, 'Importado')
+                self.set_status(record, key, 'Imported')
                 return remote[candidate]
 
         if changed:
@@ -173,14 +174,14 @@ class Relay:
             record.pop('importing', None)
             head = self.publish(root, key, session, provider, workspace, base, stamp)
             record.update(head=head, stamp=stamp, synced=int(time.time()))
-            self.set_status(record, key, 'Conflicto · se conservaron las copias' if tips else 'Copia publicada')
+            self.set_status(record, key, 'Conflict · both copies kept' if tips else 'Backup published')
             base = head
         elif diverged or tips:
-            self.set_status(record, key, 'Conflicto · se conservaron las copias')
+            self.set_status(record, key, 'Conflict · both copies kept')
         elif not base:
-            self.set_status(record, key, 'Esperando un chat local o compartido')
-        elif not record.get('status') or record['status'].startswith(('Pendiente', 'Error', 'Conflicto')):
-            self.set_status(record, key, 'Al día')
+            self.set_status(record, key, 'Waiting for a local or shared chat')
+        elif not record.get('status') or record['status'].startswith(('Pending', 'Error', 'Conflict')):
+            self.set_status(record, key, 'Up to date')
         if candidate and diverged and not base:
             return None
         if base:
@@ -198,11 +199,11 @@ class Relay:
         folder = Path(settings.folder)
         workspace = Path(settings.workspace).resolve()
         if not folder.is_dir():
-            return catalog, {}, {}, errors + ['La carpeta compartida no está disponible.']
+            return catalog, {}, {}, errors + ['The shared folder is unavailable.']
         root = self.folder(settings)
         remote = self.remote_offers(root)
         if not workspace.is_dir():
-            return catalog, remote, {}, errors + ['La raíz local de proyectos no está disponible.']
+            return catalog, remote, {}, errors + ['The local project root is unavailable.']
         suffix = hashlib.sha256(os.path.normcase(str(root)).encode()).hexdigest()[:24]
         state_path = self.home / f'state-{suffix}.json'
         state = read_json(state_path, {})
@@ -217,6 +218,9 @@ class Relay:
         chats = {}
         for key in settings.selected:
             record = state.setdefault(key, {})
+            if record.get('status_version') != STATUS_VERSION:
+                record.pop('status', None)
+                record['status_version'] = STATUS_VERSION
             if key in former:
                 chats[key] = former[key]
             try:
@@ -224,7 +228,7 @@ class Relay:
                 if info is not None:
                     chats[key] = info
             except Busy as error:
-                self.set_status(record, key, f'Pendiente · {error}')
+                self.set_status(record, key, f'Pending · {error}')
             except FAILURES as error:
                 self.set_status(record, key, f'Error · {error}')
         if previous_state != json.dumps(state, sort_keys=True):
